@@ -1,22 +1,30 @@
-# Dockerfile
 # Use an official Node.js runtime as the base image
 FROM node:22.1.0
 USER root
 
+# Update system packages (if needed)
 RUN apt-get update
+
+# Switch to non-root user
 USER 1000
+
+# Set working directory
 WORKDIR /usr/src/app
-# Copy package.json and package-lock.json to the container
+
+# Copy dependency files first
 COPY --chown=1000 package.json package-lock.json ./
 
-# Copy the rest of the application files to the container
+# Install dependencies
+RUN npm install
+
+# Copy the rest of the files
 COPY --chown=1000 . .
 
-RUN npm install
-RUN npm run build
+# Optional: build step if you’re using Vite/React/TS
+RUN npm run build || true
 
-# Expose the application port (assuming your app runs on port 3000)
-EXPOSE 5173
+# Ensure the port exposed matches your server
+EXPOSE 3000
 
 # Start the application
 CMD ["npm", "start"]

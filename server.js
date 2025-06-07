@@ -4,7 +4,7 @@ import { InferenceClient } from "@huggingface/inference";
 const app = express();
 app.use(express.json());
 
-// ✅ AI-powered endpoint
+// ✅ Streaming AI-powered endpoint
 app.post("/api/ask-json", async (req, res) => {
   const { prompt, model, provider } = req.body;
 
@@ -15,7 +15,7 @@ app.post("/api/ask-json", async (req, res) => {
   try {
     const client = new InferenceClient(process.env.HF_TOKEN);
 
-    const result = await client.chatCompletion({
+    const stream = await client.chatCompletionStream({
       model,
       provider,
       messages: [
@@ -24,19 +24,31 @@ app.post("/api/ask-json", async (req, res) => {
       ]
     });
 
-    const output = result.choices?.[0]?.message?.content ?? "";
-    res.json({ result: output });
+    // Enable streaming response
+    res.setHeader("Content-Type", "text/plain; charset=utf-8");
+    res.setHeader("Transfer-Encoding", "chunked");
+    res.setHeader("Cache-Control", "no-cache");
+
+    // Stream content back chunk by chunk
+    for await (const chunk of stream) {
+      const delta = chunk?.choices?.[0]?.delta?.content;
+      if (delta) {
+        res.write(delta);
+      }
+    }
+
+    res.end();
   } catch (err) {
-    res.status(500).json({ error: err.message || "Something went wrong." });
+    res.status(500).json({ error: err.message || "Stream error." });
   }
 });
 
-// ✅ Test route
+// ✅ Ping route
 app.get("/api/ping", (_req, res) => {
   res.json({ message: "pong" });
 });
 
-// ✅ Fallback route
+// ✅ Catch-all
 app.get("*", (_req, res) => {
   res.status(404).send("Not found");
 });

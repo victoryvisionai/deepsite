@@ -1,10 +1,3 @@
-import express from "express";
-import { InferenceClient } from "@huggingface/inference";
-
-const app = express();
-app.use(express.json());
-
-// ✅ Streaming AI-powered endpoint
 app.post("/api/ask-json", async (req, res) => {
   const { prompt, model, provider } = req.body;
 
@@ -14,7 +7,6 @@ app.post("/api/ask-json", async (req, res) => {
 
   try {
     const client = new InferenceClient(process.env.HF_TOKEN);
-
     const stream = await client.chatCompletionStream({
       model,
       provider,
@@ -24,37 +16,15 @@ app.post("/api/ask-json", async (req, res) => {
       ]
     });
 
-    // Enable streaming response
-    res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    res.setHeader("Transfer-Encoding", "chunked");
-    res.setHeader("Cache-Control", "no-cache");
+    let fullOutput = "";
 
-    // Stream content back chunk by chunk
     for await (const chunk of stream) {
       const delta = chunk?.choices?.[0]?.delta?.content;
-      if (delta) {
-        res.write(delta);
-      }
+      if (delta) fullOutput += delta;
     }
 
-    res.end();
+    res.json({ result: fullOutput });
   } catch (err) {
-    res.status(500).json({ error: err.message || "Stream error." });
+    res.status(500).json({ error: err.message });
   }
-});
-
-// ✅ Ping route
-app.get("/api/ping", (_req, res) => {
-  res.json({ message: "pong" });
-});
-
-// ✅ Catch-all
-app.get("*", (_req, res) => {
-  res.status(404).send("Not found");
-});
-
-// Start server
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`✅ Server running on http://localhost:${PORT}`);
 });

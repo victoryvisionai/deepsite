@@ -1,33 +1,47 @@
 import express from "express";
-const app = express();
+import { InferenceClient } from "@huggingface/inference";
 
+const app = express();
 app.use(express.json());
 
-// ✅ Working API route
-app.post("/api/ask-json", (req, res) => {
+// ✅ AI-powered endpoint
+app.post("/api/ask-json", async (req, res) => {
   const { prompt, model, provider } = req.body;
 
   if (!prompt || !model) {
     return res.status(400).json({ error: "Missing 'prompt' or 'model'" });
   }
 
-  // Respond with placeholder result (replace with real logic later)
-  res.json({
-    result: `✅ Received prompt for model ${model} via provider ${provider || "default"}`,
-    original: req.body
-  });
+  try {
+    const client = new InferenceClient(process.env.HF_TOKEN);
+
+    const result = await client.chatCompletion({
+      model,
+      provider,
+      messages: [
+        { role: "system", content: "You are an AI web developer assistant." },
+        { role: "user", content: prompt }
+      ]
+    });
+
+    const output = result.choices?.[0]?.message?.content ?? "";
+    res.json({ result: output });
+  } catch (err) {
+    res.status(500).json({ error: err.message || "Something went wrong." });
+  }
 });
 
-// ✅ Simple ping route to verify health
+// ✅ Test route
 app.get("/api/ping", (_req, res) => {
   res.json({ message: "pong" });
 });
 
-// ✅ Catch-all for unmatched routes
+// ✅ Fallback route
 app.get("*", (_req, res) => {
   res.status(404).send("Not found");
 });
 
+// Start server
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`✅ Server running on http://localhost:${PORT}`);

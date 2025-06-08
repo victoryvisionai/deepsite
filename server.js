@@ -8,12 +8,12 @@ import fetch from "node-fetch";
 const app = express();
 app.use(express.json());
 
-// ✅ STREAM + STORE → then notify webhook
+// STREAM → WRITE to file → POST to n8n webhook
 app.post("/api/ask-stream", async (req, res) => {
   const { prompt, model, provider, webhook } = req.body;
 
-  if (!prompt || !model || !webhook) {
-    return res.status(400).json({ error: "Missing 'prompt', 'model', or 'webhook'" });
+  if (!prompt || !model) {
+    return res.status(400).json({ error: "Missing 'prompt' or 'model'" });
   }
 
   try {
@@ -24,22 +24,27 @@ app.post("/api/ask-stream", async (req, res) => {
       messages: [
         { role: "system", content: "You are a web developer assistant." },
         { role: "user", content: prompt }
-      ]
+      ],
+      max_tokens: 4000
     });
-
-    let fullHtml = "";
-
-    for await (const chunk of stream) {
-      const delta = chunk?.choices?.[0]?.delta?.content;
-      if (delta) fullHtml += delta;
-    }
 
     const id = crypto.randomUUID();
     const filePath = path.join("/tmp", `${id}.html`);
-    fs.writeFileSync(filePath, fullHtml, "utf-8");
+    const writeStream = fs.createWriteStream(filePath, { flags: "a" });
 
-    // Notify n8n
-    await fetch(webhook, {
+    for await (const chunk of stream) {
+      const delta = chunk?.choices?.[0]?.delta?.content;
+      if (delta) writeStream.write(delta);
+    }
+
+    writeStream.end();
+
+    // Webhook (POST to n8n)
+    const webhookUrl =
+      webhook ||
+      `${process.env.N8N_WEBHOOK_URL || "https://victoryvision.app.n8n.cloud"}/webhook/receive-html`;
+
+    await fetch(webhookUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -55,7 +60,7 @@ app.post("/api/ask-stream", async (req, res) => {
   }
 });
 
-// ✅ Download full HTML
+// Download file
 app.get("/api/files/:id", (req, res) => {
   const filePath = path.join("/tmp", `${req.params.id}.html`);
   if (fs.existsSync(filePath)) {
@@ -66,7 +71,7 @@ app.get("/api/files/:id", (req, res) => {
   }
 });
 
-// ✅ Delete file (optional cleanup)
+// Optional: Delete file
 app.delete("/api/files/:id", (req, res) => {
   const filePath = path.join("/tmp", `${req.params.id}.html`);
   if (fs.existsSync(filePath)) {
@@ -77,12 +82,12 @@ app.delete("/api/files/:id", (req, res) => {
   }
 });
 
-// ✅ Health check
+// Health
 app.get("/api/ping", (_req, res) => {
   res.json({ message: "pong" });
 });
 
-// ✅ Catch-all
+// Fallback
 app.get("*", (_req, res) => {
   res.status(404).send("Not found");
 });

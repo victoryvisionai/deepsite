@@ -10,7 +10,7 @@ app.use(express.json());
 
 // STREAM → WRITE to file → POST to n8n webhook
 app.post("/api/ask-stream", async (req, res) => {
-  const { prompt, model, provider, webhook } = req.body;
+  const { prompt, model, provider, webhook, campaign_id, customer_id } = req.body;
 
   if (!prompt || !model) {
     return res.status(400).json({ error: "Missing 'prompt' or 'model'" });
@@ -50,7 +50,9 @@ app.post("/api/ask-stream", async (req, res) => {
       body: JSON.stringify({
         id,
         status: "ready",
-        fileUrl: `${process.env.BASE_URL || "https://deepsite-fdia.onrender.com"}/api/files/${id}`
+        fileUrl: `${process.env.BASE_URL || "https://deepsite-fdia.onrender.com"}/api/files/${id}`,
+        campaign_id,
+        customer_id
       })
     });
 

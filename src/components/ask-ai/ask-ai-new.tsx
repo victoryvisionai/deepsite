@@ -57,168 +57,73 @@ function AskAI({
   audio.volume = 0.5;
 
   const callAi = async () => {
-    if (isAiWorking || !prompt.trim()) return;
-    setisAiWorking(true);
-    setProviderError("");
-    setThink("");
-    setOpenThink(false);
-    setIsThinking(true);
+  if (isAiWorking || !prompt.trim()) return;
+  setisAiWorking(true);
+  setProviderError("");
+  setThink("");
+  setOpenThink(false);
+  setIsThinking(true);
 
-    let contentResponse = "";
-    let thinkResponse = "";
-    let lastRenderTime = 0;
+  const audio = new Audio(SuccessSound);
+  audio.volume = 0.5;
 
-    const isFollowUp = html !== defaultHTML;
-    const abortController = new AbortController();
-    setController(abortController);
-    try {
-      onNewPrompt(prompt);
-      if (isFollowUp) {
-        const request = await fetch("/api/ask-ai", {
-          method: "PUT",
-          body: JSON.stringify({
-            prompt,
-            provider,
-            previousPrompt,
-            html,
-          }),
-          headers: {
-            "Content-Type": "application/json",
-          },
-          signal: abortController.signal,
-        });
-        if (request && request.body) {
-          const res = await request.json();
-          if (!request.ok) {
-            if (res.openLogin) {
-              setOpen(true);
-            } else if (res.openSelectProvider) {
-              setOpenProvider(true);
-              setProviderError(res.message);
-            } else if (res.openProModal) {
-              setOpenProModal(true);
-            } else {
-              toast.error(res.message);
-            }
-            setisAiWorking(false);
-            return;
-          }
-          setHtml(res.html);
-          toast.success("AI responded successfully");
-          setPreviousPrompt(prompt);
-          setPrompt("");
-          setisAiWorking(false);
-          onSuccess(res.html, prompt, res.updatedLines);
-          audio.play();
-        }
-      } else {
-        const request = await fetch("/api/ask-ai", {
-          method: "POST",
-          body: JSON.stringify({
-            prompt,
-            provider,
-            model,
-          }),
-          headers: {
-            "Content-Type": "application/json",
-          },
-          signal: abortController.signal,
-        });
-        if (request && request.body) {
-          if (!request.ok) {
-            const res = await request.json();
-            if (res.openLogin) {
-              setOpen(true);
-            } else if (res.openSelectProvider) {
-              setOpenProvider(true);
-              setProviderError(res.message);
-            } else if (res.openProModal) {
-              setOpenProModal(true);
-            } else {
-              toast.error(res.message);
-            }
-            setisAiWorking(false);
-            return;
-          }
-          const reader = request.body.getReader();
-          const decoder = new TextDecoder("utf-8");
-          const selectedModel = MODELS.find(
-            (m: { value: string }) => m.value === model
-          );
-          let contentThink: string | undefined = undefined;
-          const read = async () => {
-            const { done, value } = await reader.read();
-            if (done) {
-              toast.success("AI responded successfully");
-              setPreviousPrompt(prompt);
-              setPrompt("");
-              setisAiWorking(false);
-              setHasAsked(true);
-              audio.play();
+  let contentResponse = "";
 
-              // Now we have the complete HTML including </html>, so set it to be sure
-              const finalDoc = contentResponse.match(
-                /<!DOCTYPE html>[\s\S]*<\/html>/
-              )?.[0];
-              if (finalDoc) {
-                setHtml(finalDoc);
-              }
-              onSuccess(finalDoc ?? contentResponse, prompt);
+  const isFollowUp = html !== defaultHTML;
+  const abortController = new AbortController();
+  setController(abortController);
 
-              return;
-            }
+  try {
+    onNewPrompt(prompt);
 
-            const chunk = decoder.decode(value, { stream: true });
-            thinkResponse += chunk;
-            if (selectedModel?.isThinker) {
-              const thinkMatch = thinkResponse.match(/<think>[\s\S]*/)?.[0];
-              if (thinkMatch && !thinkResponse?.includes("</think>")) {
-                if ((contentThink?.length ?? 0) < 3) {
-                  setOpenThink(true);
-                }
-                setThink(thinkMatch.replace("<think>", "").trim());
-                contentThink += chunk;
-                return read();
-              }
-            }
+    const request = await fetch("/api/ask-ai", {
+      method: isFollowUp ? "PUT" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        prompt,
+        provider,
+        ...(isFollowUp ? { previousPrompt, html } : { model }),
+      }),
+      signal: abortController.signal,
+    });
 
-            contentResponse += chunk;
+    if (!request.ok) {
+      const res = await request.json();
+      if (res.openLogin) setOpen(true);
+      else if (res.openSelectProvider) {
+        setOpenProvider(true);
+        setProviderError(res.message);
+      } else if (res.openProModal) setOpenProModal(true);
+      else toast.error(res.message);
+      setisAiWorking(false);
+      return;
+    }
 
-            const newHtml = contentResponse.match(
-              /<!DOCTYPE html>[\s\S]*/
-            )?.[0];
-            if (newHtml) {
-              setIsThinking(false);
-              let partialDoc = newHtml;
-              if (
-                partialDoc.includes("<head>") &&
-                !partialDoc.includes("</head>")
-              ) {
-                partialDoc += "\n</head>";
-              }
-              if (
-                partialDoc.includes("<body") &&
-                !partialDoc.includes("</body>")
-              ) {
-                partialDoc += "\n</body>";
-              }
-              if (!partialDoc.includes("</html>")) {
-                partialDoc += "\n</html>";
-              }
+    const reader = request.body?.getReader();
+    const decoder = new TextDecoder("utf-8");
+    if (!reader) throw new Error("No readable response body");
 
-              // Throttle the re-renders to avoid flashing/flicker
-              const now = Date.now();
-              if (now - lastRenderTime > 300) {
-                setHtml(partialDoc);
-                lastRenderTime = now;
-              }
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      contentResponse += decoder.decode(value, { stream: true });
+    }
 
-              if (partialDoc.length > 200) {
-                onScrollToBottom();
-              }
-            }
-            read();
-          };
+    const fullHtml = contentResponse.match(/<!DOCTYPE html>[\s\S]*<\/html>/)?.[0] ?? contentResponse;
+    setHtml(fullHtml);
+    toast.success("AI responded successfully");
+    setPreviousPrompt(prompt);
+    setPrompt("");
+    setisAiWorking(false);
+    setHasAsked(true);
+    onSuccess(fullHtml, prompt);
+    audio.play();
+  } catch (error: any) {
+    setisAiWorking(false);
+    toast.error(error.message || "Something went wrong.");
+    if (error.openLogin) setOpen(true);
+  }
+};
 
           read();
         }
